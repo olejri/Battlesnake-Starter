@@ -19,10 +19,14 @@ export function end(gameState: GameState): void {
     console.log(`${gameState.game.id} END\n`);
 }
 
+// Current mode
 export let mode: Mode = Mode.EAT;
-export let wallHugUntil: boolean = false;
-export let hpThreshold: number = 50;
+
+// Health threshold to start eating
 export let whenToStartEating: number = 20;
+
+// DEFEND persistence
+export let defendTurns: number = 0;
 
 // Manhattan distance
 function distance(a: Coord, b: Coord): number {
@@ -39,6 +43,8 @@ export function move(gameState: GameState): MoveResponse {
 
     const myHead = gameState.you.head;
     const myNeck = gameState.you.body[1];
+    const boardWidth = gameState.board.width;
+    const boardHeight = gameState.board.height;
 
     // Step 0: Don’t move backwards
     if (myNeck.x < myHead.x) isMoveSafe.left = false;
@@ -47,9 +53,6 @@ export function move(gameState: GameState): MoveResponse {
     else if (myNeck.y > myHead.y) isMoveSafe.up = false;
 
     // Step 1: Prevent out of bounds
-    const boardWidth = gameState.board.width;
-    const boardHeight = gameState.board.height;
-
     if (myHead.x === 0) isMoveSafe.left = false;
     if (myHead.x === boardWidth - 1) isMoveSafe.right = false;
     if (myHead.y === 0) isMoveSafe.down = false;
@@ -83,12 +86,10 @@ export function move(gameState: GameState): MoveResponse {
     let nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
 
     // --- Mode Switching ---
-    // If health < 50 → force EAT until >= 70
-    if (gameState.you.health < whenToStartEating && !wallHugUntil) {
+    // Default by health
+    if (gameState.you.health < whenToStartEating) {
         mode = Mode.EAT;
-        wallHugUntil = true;
-    } else if (wallHugUntil && gameState.you.health >= hpThreshold) {
-        wallHugUntil = false;
+    } else {
         mode = Mode.WALL_HUG;
     }
 
@@ -106,12 +107,16 @@ export function move(gameState: GameState): MoveResponse {
         }
     });
 
-    if (closestEnemy && closestEnemyDist <= 1) {
+    // DEFEND priority
+    if ((closestEnemy && closestEnemyDist <= 2) || defendTurns > 0) {
         mode = Mode.DEFEND;
+        defendTurns = 2; // persist DEFEND for 2 turns
     }
 
     // --- Mode Behaviors ---
     if (mode === Mode.WALL_HUG) {
+        let preferred: string | undefined;
+
         // If not touching wall → move toward nearest wall
         if (myHead.x > 0 && myHead.x < boardWidth - 1 && myHead.y > 0 && myHead.y < boardHeight - 1) {
             const distLeft = myHead.x;
@@ -120,17 +125,20 @@ export function move(gameState: GameState): MoveResponse {
             const distUp = boardHeight - 1 - myHead.y;
             const minDist = Math.min(distLeft, distRight, distDown, distUp);
 
-            if (minDist === distLeft && safeMoves.includes("left")) nextMove = "left";
-            else if (minDist === distRight && safeMoves.includes("right")) nextMove = "right";
-            else if (minDist === distDown && safeMoves.includes("down")) nextMove = "down";
-            else if (minDist === distUp && safeMoves.includes("up")) nextMove = "up";
+            if (minDist === distLeft && safeMoves.includes("left")) preferred = "left";
+            else if (minDist === distRight && safeMoves.includes("right")) preferred = "right";
+            else if (minDist === distDown && safeMoves.includes("down")) preferred = "down";
+            else if (minDist === distUp && safeMoves.includes("up")) preferred = "up";
         } else {
             // Already hugging → follow clockwise
-            if (myHead.x === 0 && safeMoves.includes("up")) nextMove = "up";
-            else if (myHead.y === boardHeight - 1 && safeMoves.includes("right")) nextMove = "right";
-            else if (myHead.x === boardWidth - 1 && safeMoves.includes("down")) nextMove = "down";
-            else if (myHead.y === 0 && safeMoves.includes("left")) nextMove = "left";
+            if (myHead.x === 0) preferred = safeMoves.includes("up") ? "up" : undefined;
+            else if (myHead.y === boardHeight - 1) preferred = safeMoves.includes("right") ? "right" : undefined;
+            else if (myHead.x === boardWidth - 1) preferred = safeMoves.includes("down") ? "down" : undefined;
+            else if (myHead.y === 0) preferred = safeMoves.includes("left") ? "left" : undefined;
         }
+
+        if (preferred && safeMoves.includes(preferred)) nextMove = preferred;
+        else nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)]; // fallback
     }
 
     if (mode === Mode.EAT) {
@@ -182,6 +190,7 @@ export function move(gameState: GameState): MoveResponse {
         });
 
         nextMove = bestMove;
+        defendTurns--; // decrement persistence
     }
 
     console.log(`MOVE ${gameState.turn}: ${nextMove} (${mode})`);
