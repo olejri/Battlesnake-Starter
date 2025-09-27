@@ -23,10 +23,13 @@ export function end(gameState: GameState): void {
 export let mode: Mode = Mode.EAT;
 
 // Health threshold to start eating
-export let whenToStartEating: number = 20;
+export let whenToStartEating: number = 40;
 
 // DEFEND persistence
 export let defendTurns: number = 0;
+
+// DESPERATE threshold
+export let desperateThreshold: number = 20;
 
 // Manhattan distance
 function distance(a: Coord, b: Coord): number {
@@ -84,6 +87,39 @@ export function move(gameState: GameState): MoveResponse {
     }
 
     let nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
+
+    // --- DESPERATE MODE ---
+    if (gameState.you.health < desperateThreshold) {
+        mode = Mode.EAT; // DESPERATE behaves like EAT but with higher priority
+        // Go straight for closest food ignoring other modes
+        const food = gameState.board.food;
+        let closestFood: Coord | undefined;
+        let minDistance = Infinity;
+
+        food.forEach((f) => {
+            const d = distance(myHead, f);
+            if (d < minDistance) {
+                minDistance = d;
+                closestFood = f;
+            }
+        });
+
+        if (closestFood) {
+            const preferredMoves: string[] = [];
+            if (myHead.x < closestFood.x) preferredMoves.push("right");
+            else if (myHead.x > closestFood.x) preferredMoves.push("left");
+            if (myHead.y < closestFood.y) preferredMoves.push("up");
+            else if (myHead.y > closestFood.y) preferredMoves.push("down");
+
+            const safePreferredMoves = preferredMoves.filter((m) => safeMoves.includes(m));
+            if (safePreferredMoves.length > 0) {
+                nextMove = safePreferredMoves[Math.floor(Math.random() * safePreferredMoves.length)];
+            }
+        }
+
+        console.log(`MOVE ${gameState.turn}: ${nextMove} (DESPERATE)`);
+        return { move: nextMove };
+    }
 
     // --- Mode Switching ---
     // Default by health
