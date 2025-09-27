@@ -23,7 +23,7 @@ export function end(gameState: GameState): void {
 export let mode: Mode = Mode.EAT;
 
 // Health threshold to start eating
-export let whenToStartEating: number = 40;
+export let whenToStartEating: number = 20;
 
 // DEFEND persistence
 export let defendTurns: number = 0;
@@ -34,6 +34,32 @@ export let desperateThreshold: number = 20;
 // Manhattan distance
 function distance(a: Coord, b: Coord): number {
     return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+// Count free adjacent tiles for a position
+function freeAdjacentTiles(pos: Coord, gameState: GameState): number {
+    const boardWidth = gameState.board.width;
+    const boardHeight = gameState.board.height;
+    let count = 0;
+    const dirs: Coord[] = [
+        { x: pos.x, y: pos.y + 1 },
+        { x: pos.x, y: pos.y - 1 },
+        { x: pos.x - 1, y: pos.y },
+        { x: pos.x + 1, y: pos.y },
+    ];
+
+    dirs.forEach((d) => {
+        if (
+            d.x >= 0 && d.x < boardWidth &&
+            d.y >= 0 && d.y < boardHeight &&
+            !gameState.you.body.some((b) => b.x === d.x && b.y === d.y) &&
+            !gameState.board.snakes.some((s) => s.body.some((b) => b.x === d.x && b.y === d.y))
+        ) {
+            count++;
+        }
+    });
+
+    return count;
 }
 
 export function move(gameState: GameState): MoveResponse {
@@ -90,31 +116,32 @@ export function move(gameState: GameState): MoveResponse {
 
     // --- DESPERATE MODE ---
     if (gameState.you.health < desperateThreshold) {
-        mode = Mode.EAT; // DESPERATE behaves like EAT but with higher priority
-        // Go straight for closest food ignoring other modes
+        mode = Mode.EAT; // DESPERATE behaves like EAT
         const food = gameState.board.food;
-        let closestFood: Coord | undefined;
-        let minDistance = Infinity;
+        if (food.length > 0) {
+            // Choose closest food considering free tiles
+            let bestMove: string | undefined;
+            let bestScore = -Infinity;
 
-        food.forEach((f) => {
-            const d = distance(myHead, f);
-            if (d < minDistance) {
-                minDistance = d;
-                closestFood = f;
-            }
-        });
+            const moveOptions: { [key: string]: Coord } = {
+                up: { x: myHead.x, y: myHead.y + 1 },
+                down: { x: myHead.x, y: myHead.y - 1 },
+                left: { x: myHead.x - 1, y: myHead.y },
+                right: { x: myHead.x + 1, y: myHead.y },
+            };
 
-        if (closestFood) {
-            const preferredMoves: string[] = [];
-            if (myHead.x < closestFood.x) preferredMoves.push("right");
-            else if (myHead.x > closestFood.x) preferredMoves.push("left");
-            if (myHead.y < closestFood.y) preferredMoves.push("up");
-            else if (myHead.y > closestFood.y) preferredMoves.push("down");
+            safeMoves.forEach((m) => {
+                const pos = moveOptions[m];
+                const d = Math.min(...food.map((f) => distance(pos, f)));
+                const freeTiles = freeAdjacentTiles(pos, gameState);
+                const score = -d + freeTiles * 0.5; // prefer closer food and safer moves
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestMove = m;
+                }
+            });
 
-            const safePreferredMoves = preferredMoves.filter((m) => safeMoves.includes(m));
-            if (safePreferredMoves.length > 0) {
-                nextMove = safePreferredMoves[Math.floor(Math.random() * safePreferredMoves.length)];
-            }
+            if (bestMove) nextMove = bestMove;
         }
 
         console.log(`MOVE ${gameState.turn}: ${nextMove} (DESPERATE)`);
@@ -122,7 +149,6 @@ export function move(gameState: GameState): MoveResponse {
     }
 
     // --- Mode Switching ---
-    // Default by health
     if (gameState.you.health < whenToStartEating) {
         mode = Mode.EAT;
     } else {
@@ -143,79 +169,67 @@ export function move(gameState: GameState): MoveResponse {
         }
     });
 
-    // DEFEND priority
     if ((closestEnemy && closestEnemyDist <= 2) || defendTurns > 0) {
         mode = Mode.DEFEND;
-        defendTurns = 2; // persist DEFEND for 2 turns
+        defendTurns = 2;
     }
 
     // --- Mode Behaviors ---
     if (mode === Mode.WALL_HUG) {
         let preferred: string | undefined;
-
-        // If not touching wall → move toward nearest wall
         if (myHead.x > 0 && myHead.x < boardWidth - 1 && myHead.y > 0 && myHead.y < boardHeight - 1) {
             const distLeft = myHead.x;
             const distRight = boardWidth - 1 - myHead.x;
             const distDown = myHead.y;
             const distUp = boardHeight - 1 - myHead.y;
             const minDist = Math.min(distLeft, distRight, distDown, distUp);
-
             if (minDist === distLeft && safeMoves.includes("left")) preferred = "left";
             else if (minDist === distRight && safeMoves.includes("right")) preferred = "right";
             else if (minDist === distDown && safeMoves.includes("down")) preferred = "down";
             else if (minDist === distUp && safeMoves.includes("up")) preferred = "up";
         } else {
-            // Already hugging → follow clockwise
             if (myHead.x === 0) preferred = safeMoves.includes("up") ? "up" : undefined;
             else if (myHead.y === boardHeight - 1) preferred = safeMoves.includes("right") ? "right" : undefined;
             else if (myHead.x === boardWidth - 1) preferred = safeMoves.includes("down") ? "down" : undefined;
             else if (myHead.y === 0) preferred = safeMoves.includes("left") ? "left" : undefined;
         }
-
         if (preferred && safeMoves.includes(preferred)) nextMove = preferred;
-        else nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)]; // fallback
+        else nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
     }
 
     if (mode === Mode.EAT) {
         const food = gameState.board.food;
-        let closestFood: Coord | undefined;
-        let minDistance = Infinity;
-
-        food.forEach((f) => {
-            const d = distance(myHead, f);
-            if (d < minDistance) {
-                minDistance = d;
-                closestFood = f;
-            }
-        });
-
-        if (closestFood) {
-            const preferredMoves: string[] = [];
-            if (myHead.x < closestFood.x) preferredMoves.push("right");
-            else if (myHead.x > closestFood.x) preferredMoves.push("left");
-            if (myHead.y < closestFood.y) preferredMoves.push("up");
-            else if (myHead.y > closestFood.y) preferredMoves.push("down");
-
-            const safePreferredMoves = preferredMoves.filter((m) => safeMoves.includes(m));
-            if (safePreferredMoves.length > 0) {
-                nextMove = safePreferredMoves[Math.floor(Math.random() * safePreferredMoves.length)];
+        if (food.length > 0) {
+            let closestFood: Coord | undefined;
+            let minDistance = Infinity;
+            food.forEach((f) => {
+                const d = distance(myHead, f);
+                if (d < minDistance) {
+                    minDistance = d;
+                    closestFood = f;
+                }
+            });
+            if (closestFood) {
+                const preferredMoves: string[] = [];
+                if (myHead.x < closestFood.x) preferredMoves.push("right");
+                else if (myHead.x > closestFood.x) preferredMoves.push("left");
+                if (myHead.y < closestFood.y) preferredMoves.push("up");
+                else if (myHead.y > closestFood.y) preferredMoves.push("down");
+                const safePreferredMoves = preferredMoves.filter((m) => safeMoves.includes(m));
+                if (safePreferredMoves.length > 0) nextMove = safePreferredMoves[Math.floor(Math.random() * safePreferredMoves.length)];
             }
         }
     }
 
     if (mode === Mode.DEFEND && closestEnemy) {
-        // Pick moves that increase distance from enemy head
         const moveOptions: { [key: string]: Coord } = {
             up: { x: myHead.x, y: myHead.y + 1 },
             down: { x: myHead.x, y: myHead.y - 1 },
             left: { x: myHead.x - 1, y: myHead.y },
             right: { x: myHead.x + 1, y: myHead.y },
         };
-
         let bestMove = nextMove;
         let maxDist = -1;
-
         safeMoves.forEach((m) => {
             const pos = moveOptions[m];
             const d = distance(pos, closestEnemy!);
@@ -224,9 +238,8 @@ export function move(gameState: GameState): MoveResponse {
                 bestMove = m;
             }
         });
-
         nextMove = bestMove;
-        defendTurns--; // decrement persistence
+        defendTurns--;
     }
 
     console.log(`MOVE ${gameState.turn}: ${nextMove} (${mode})`);
