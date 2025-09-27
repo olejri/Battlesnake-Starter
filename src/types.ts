@@ -75,3 +75,10 @@ export interface MoveResponse {
   move: string;
   shout?: string;
 }
+
+export enum Mode {
+    EAT,
+    ATTACK,
+    WALL_HUG,
+    DEFEND
+}
