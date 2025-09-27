@@ -177,22 +177,37 @@ export function move(gameState: GameState): MoveResponse {
     // --- Mode Behaviors ---
     if (mode === Mode.WALL_HUG) {
         let preferred: string | undefined;
-        if (myHead.x > 0 && myHead.x < boardWidth - 1 && myHead.y > 0 && myHead.y < boardHeight - 1) {
-            const distLeft = myHead.x;
-            const distRight = boardWidth - 1 - myHead.x;
-            const distDown = myHead.y;
-            const distUp = boardHeight - 1 - myHead.y;
+
+        // Target inner wall coordinates: one tile away from edges
+        const innerLeft = 1;
+        const innerRight = boardWidth - 2;
+        const innerBottom = 1;
+        const innerTop = boardHeight - 2;
+
+        // If not on any inner wall, move toward the nearest inner wall
+        if (
+            myHead.x > innerLeft && myHead.x < innerRight &&
+            myHead.y > innerBottom && myHead.y < innerTop
+        ) {
+            const distLeft = myHead.x - innerLeft;
+            const distRight = innerRight - myHead.x;
+            const distDown = myHead.y - innerBottom;
+            const distUp = innerTop - myHead.y;
+
             const minDist = Math.min(distLeft, distRight, distDown, distUp);
+
             if (minDist === distLeft && safeMoves.includes("left")) preferred = "left";
             else if (minDist === distRight && safeMoves.includes("right")) preferred = "right";
             else if (minDist === distDown && safeMoves.includes("down")) preferred = "down";
             else if (minDist === distUp && safeMoves.includes("up")) preferred = "up";
         } else {
-            if (myHead.x === 0) preferred = safeMoves.includes("up") ? "up" : undefined;
-            else if (myHead.y === boardHeight - 1) preferred = safeMoves.includes("right") ? "right" : undefined;
-            else if (myHead.x === boardWidth - 1) preferred = safeMoves.includes("down") ? "down" : undefined;
-            else if (myHead.y === 0) preferred = safeMoves.includes("left") ? "left" : undefined;
+            // Already on an inner wall → follow clockwise/counter-clockwise
+            if (myHead.x === innerLeft) preferred = safeMoves.includes("up") ? "up" : undefined;
+            else if (myHead.y === innerTop) preferred = safeMoves.includes("right") ? "right" : undefined;
+            else if (myHead.x === innerRight) preferred = safeMoves.includes("down") ? "down" : undefined;
+            else if (myHead.y === innerBottom) preferred = safeMoves.includes("left") ? "left" : undefined;
         }
+
         if (preferred && safeMoves.includes(preferred)) nextMove = preferred;
         else nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
     }
