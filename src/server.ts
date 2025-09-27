@@ -4,10 +4,10 @@ export function info(): InfoResponse {
   console.log("INFO");
   return {
     apiversion: "1",
-    author: "Bubblun",
-    color: "#5AC252",
-    head: "default",
-    tail: "default",
+    author: "Nelich",
+    color: "#8852c2",
+    head: "gamer",
+    tail: "mystic-moon",
   };
 }
 
