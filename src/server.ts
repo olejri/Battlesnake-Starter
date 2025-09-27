@@ -1,25 +1,29 @@
 import {Coord, GameState, InfoResponse, Mode, MoveResponse} from "./types";
 
 export function info(): InfoResponse {
-  console.log("INFO");
-  return {
-    apiversion: "1",
-    author: "Nelich",
-    color: "#8852c2",
-    head: "gamer",
-    tail: "mystic-moon",
-  };
+    console.log("INFO");
+    return {
+        apiversion: "1",
+        author: "Nelich",
+        color: "#8852c2",
+        head: "gamer",
+        tail: "mystic-moon",
+    };
 }
 
 export function start(gameState: GameState): void {
-  console.log(`${gameState.game.id} START`);
+    console.log(`${gameState.game.id} START`);
 }
 
 export function end(gameState: GameState): void {
-  console.log(`${gameState.game.id} END\n`);
+    console.log(`${gameState.game.id} END\n`);
 }
 
-export let mode: Mode = Mode.EAT
+// Default mode
+export let mode: Mode = Mode.EAT;
+
+// Health threshold to leave food-hunting mode
+export const hpThreshold: number = 70;
 
 export function move(gameState: GameState): MoveResponse {
     let isMoveSafe: { [key: string]: boolean } = {
@@ -79,37 +83,42 @@ export function move(gameState: GameState): MoveResponse {
 
     let nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
 
-    if (gameState.you.health < 50) {
-        mode = Mode.EAT
+    // Mode switching with hysteresis
+    if (mode === Mode.WALL_HUG && gameState.you.health < 50) {
+        mode = Mode.EAT;
     }
-
-    if(gameState.you.health > 50) {
-        mode = Mode.WALL_HUG
+    if (mode === Mode.EAT && gameState.you.health >= hpThreshold) {
+        mode = Mode.WALL_HUG;
     }
 
     // WALL_HUG mode
     if (mode === Mode.WALL_HUG) {
-        const wallMoves: string[] = [];
+        // If NOT touching a wall → move toward the nearest wall first
+        if (myHead.x > 0 && myHead.x < boardWidth - 1 &&
+            myHead.y > 0 && myHead.y < boardHeight - 1) {
 
-        // Prefer sticking to walls
-        if (myHead.x === 0) {}wallMoves.push("down", "up"); // On left wall
-        if (myHead.x === boardWidth - 1) {}wallMoves.push("down", "up"); // On right wall
-        if (myHead.y === 0) {}wallMoves.push("left", "right"); // On bottom wall
-        if (myHead.y === boardHeight - 1) {}wallMoves.push("left", "right"); // On top wall
+            const distLeft = myHead.x;
+            const distRight = boardWidth - 1 - myHead.x;
+            const distDown = myHead.y;
+            const distUp = boardHeight - 1 - myHead.y;
 
-        // If already next to a wall, follow along it (hugging clockwise)
-        if (myHead.x === 0 && safeMoves.includes("up")) {nextMove = "up"}
-        else if (myHead.y === boardHeight - 1 && safeMoves.includes("right")) {nextMove = "right"}
-        else if (myHead.x === boardWidth - 1 && safeMoves.includes("down")) {nextMove = "down"}
-        else if (myHead.y === 0 && safeMoves.includes("left")) {nextMove = "left"}
+            const minDist = Math.min(distLeft, distRight, distDown, distUp);
 
-        // If wall-following move is safe, use it
-        const safeWallMoves = wallMoves.filter((m) => safeMoves.includes(m));
-        if (safeWallMoves.length > 0) {
-            nextMove = safeWallMoves[Math.floor(Math.random() * safeWallMoves.length)];
+            if (minDist === distLeft && safeMoves.includes("left")) nextMove = "left";
+            else if (minDist === distRight && safeMoves.includes("right")) nextMove = "right";
+            else if (minDist === distDown && safeMoves.includes("down")) nextMove = "down";
+            else if (minDist === distUp && safeMoves.includes("up")) nextMove = "up";
+        } else {
+            // Already on a wall → follow perimeter clockwise
+            if (myHead.x === 0 && safeMoves.includes("up")) nextMove = "up";
+            else if (myHead.y === boardHeight - 1 && safeMoves.includes("right")) nextMove = "right";
+            else if (myHead.x === boardWidth - 1 && safeMoves.includes("down")) nextMove = "down";
+            else if (myHead.y === 0 && safeMoves.includes("left")) nextMove = "left";
         }
-    } else if (mode === Mode.EAT) {
-        // FOOD-SEEKING mode
+    }
+
+    // EAT mode
+    if (mode === Mode.EAT) {
         const food = gameState.board.food;
         let closestFood: Coord | undefined;
         let minDistance = Infinity;
@@ -144,4 +153,3 @@ export function move(gameState: GameState): MoveResponse {
     console.log(`MOVE ${gameState.turn}: ${nextMove} (${mode})`);
     return { move: nextMove };
 }
-
