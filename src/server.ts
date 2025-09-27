@@ -22,6 +22,7 @@ export function end(gameState: GameState): void {
 export let mode: Mode = Mode.EAT;
 export let wallHugUntil: boolean = false;
 export let hpThreshold: number = 50;
+export let whenToStartEating: number = 20;
 
 // Manhattan distance
 function distance(a: Coord, b: Coord): number {
@@ -83,7 +84,7 @@ export function move(gameState: GameState): MoveResponse {
 
     // --- Mode Switching ---
     // If health < 50 → force EAT until >= 70
-    if (gameState.you.health < 50 && !wallHugUntil) {
+    if (gameState.you.health < whenToStartEating && !wallHugUntil) {
         mode = Mode.EAT;
         wallHugUntil = true;
     } else if (wallHugUntil && gameState.you.health >= hpThreshold) {
