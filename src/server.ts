@@ -105,7 +105,7 @@ export function move(gameState: GameState): MoveResponse {
         }
     });
 
-    if (closestEnemy && closestEnemyDist <= 2) {
+    if (closestEnemy && closestEnemyDist <= 1) {
         mode = Mode.DEFEND;
     }
 
