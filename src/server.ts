@@ -1,4 +1,4 @@
-import {Coord, GameState, InfoResponse, Mode, MoveResponse} from "./types";
+import { Coord, GameState, InfoResponse, Mode, MoveResponse } from "./types";
 
 export function info(): InfoResponse {
     console.log("INFO");
@@ -19,11 +19,14 @@ export function end(gameState: GameState): void {
     console.log(`${gameState.game.id} END\n`);
 }
 
-// Default mode
 export let mode: Mode = Mode.EAT;
+export let wallHugUntil: boolean = false;
+export let hpThreshold: number = 50;
 
-// Health threshold to leave food-hunting mode
-export const hpThreshold: number = 70;
+// Manhattan distance
+function distance(a: Coord, b: Coord): number {
+    return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
 
 export function move(gameState: GameState): MoveResponse {
     let isMoveSafe: { [key: string]: boolean } = {
@@ -37,15 +40,10 @@ export function move(gameState: GameState): MoveResponse {
     const myNeck = gameState.you.body[1];
 
     // Step 0: Don’t move backwards
-    if (myNeck.x < myHead.x) {
-        isMoveSafe.left = false;
-    } else if (myNeck.x > myHead.x) {
-        isMoveSafe.right = false;
-    } else if (myNeck.y < myHead.y) {
-        isMoveSafe.down = false;
-    } else if (myNeck.y > myHead.y) {
-        isMoveSafe.up = false;
-    }
+    if (myNeck.x < myHead.x) isMoveSafe.left = false;
+    else if (myNeck.x > myHead.x) isMoveSafe.right = false;
+    else if (myNeck.y < myHead.y) isMoveSafe.down = false;
+    else if (myNeck.y > myHead.y) isMoveSafe.up = false;
 
     // Step 1: Prevent out of bounds
     const boardWidth = gameState.board.width;
@@ -58,21 +56,21 @@ export function move(gameState: GameState): MoveResponse {
 
     // Step 2: Prevent colliding with yourself
     gameState.you.body.forEach((segment) => {
-        if (myHead.x === segment.x - 1 && myHead.y === segment.y) {
-            isMoveSafe.right = false;
-        }
-        if (myHead.x === segment.x + 1 && myHead.y === segment.y) {
-            isMoveSafe.left = false;
-        }
-        if (myHead.y === segment.y - 1 && myHead.x === segment.x) {
-            isMoveSafe.up = false;
-        }
-        if (myHead.y === segment.y + 1 && myHead.x === segment.x) {
-            isMoveSafe.down = false;
-        }
+        if (myHead.x === segment.x - 1 && myHead.y === segment.y) isMoveSafe.right = false;
+        if (myHead.x === segment.x + 1 && myHead.y === segment.y) isMoveSafe.left = false;
+        if (myHead.y === segment.y - 1 && myHead.x === segment.x) isMoveSafe.up = false;
+        if (myHead.y === segment.y + 1 && myHead.x === segment.x) isMoveSafe.down = false;
     });
 
-    // TODO Step 3: Prevent collisions with other snakes
+    // Step 3: Prevent collisions with other snakes’ bodies
+    gameState.board.snakes.forEach((snake) => {
+        snake.body.forEach((segment) => {
+            if (myHead.x === segment.x - 1 && myHead.y === segment.y) isMoveSafe.right = false;
+            if (myHead.x === segment.x + 1 && myHead.y === segment.y) isMoveSafe.left = false;
+            if (myHead.y === segment.y - 1 && myHead.x === segment.x) isMoveSafe.up = false;
+            if (myHead.y === segment.y + 1 && myHead.x === segment.x) isMoveSafe.down = false;
+        });
+    });
 
     // Collect safe moves
     const safeMoves = Object.keys(isMoveSafe).filter((key) => isMoveSafe[key]);
@@ -83,25 +81,42 @@ export function move(gameState: GameState): MoveResponse {
 
     let nextMove = safeMoves[Math.floor(Math.random() * safeMoves.length)];
 
-    // Mode switching with hysteresis
-    if (mode === Mode.WALL_HUG && gameState.you.health < 50) {
+    // --- Mode Switching ---
+    // If health < 50 → force EAT until >= 70
+    if (gameState.you.health < 50 && !wallHugUntil) {
         mode = Mode.EAT;
-    }
-    if (mode === Mode.EAT && gameState.you.health >= hpThreshold) {
+        wallHugUntil = true;
+    } else if (wallHugUntil && gameState.you.health >= hpThreshold) {
+        wallHugUntil = false;
         mode = Mode.WALL_HUG;
     }
 
-    // WALL_HUG mode
-    if (mode === Mode.WALL_HUG) {
-        // If NOT touching a wall → move toward the nearest wall first
-        if (myHead.x > 0 && myHead.x < boardWidth - 1 &&
-            myHead.y > 0 && myHead.y < boardHeight - 1) {
+    // Check if enemy snake is nearby → DEFEND
+    let closestEnemyDist = Infinity;
+    let closestEnemy: Coord | undefined;
 
+    gameState.board.snakes.forEach((snake) => {
+        if (snake.id !== gameState.you.id) {
+            const d = distance(myHead, snake.head);
+            if (d < closestEnemyDist) {
+                closestEnemyDist = d;
+                closestEnemy = snake.head;
+            }
+        }
+    });
+
+    if (closestEnemy && closestEnemyDist <= 2) {
+        mode = Mode.DEFEND;
+    }
+
+    // --- Mode Behaviors ---
+    if (mode === Mode.WALL_HUG) {
+        // If not touching wall → move toward nearest wall
+        if (myHead.x > 0 && myHead.x < boardWidth - 1 && myHead.y > 0 && myHead.y < boardHeight - 1) {
             const distLeft = myHead.x;
             const distRight = boardWidth - 1 - myHead.x;
             const distDown = myHead.y;
             const distUp = boardHeight - 1 - myHead.y;
-
             const minDist = Math.min(distLeft, distRight, distDown, distUp);
 
             if (minDist === distLeft && safeMoves.includes("left")) nextMove = "left";
@@ -109,7 +124,7 @@ export function move(gameState: GameState): MoveResponse {
             else if (minDist === distDown && safeMoves.includes("down")) nextMove = "down";
             else if (minDist === distUp && safeMoves.includes("up")) nextMove = "up";
         } else {
-            // Already on a wall → follow perimeter clockwise
+            // Already hugging → follow clockwise
             if (myHead.x === 0 && safeMoves.includes("up")) nextMove = "up";
             else if (myHead.y === boardHeight - 1 && safeMoves.includes("right")) nextMove = "right";
             else if (myHead.x === boardWidth - 1 && safeMoves.includes("down")) nextMove = "down";
@@ -117,37 +132,55 @@ export function move(gameState: GameState): MoveResponse {
         }
     }
 
-    // EAT mode
     if (mode === Mode.EAT) {
         const food = gameState.board.food;
         let closestFood: Coord | undefined;
         let minDistance = Infinity;
 
         food.forEach((f) => {
-            const distance = Math.abs(myHead.x - f.x) + Math.abs(myHead.y - f.y);
-            if (distance < minDistance) {
-                minDistance = distance;
+            const d = distance(myHead, f);
+            if (d < minDistance) {
+                minDistance = d;
                 closestFood = f;
             }
         });
 
-        if (closestFood !== undefined) {
+        if (closestFood) {
             const preferredMoves: string[] = [];
             if (myHead.x < closestFood.x) preferredMoves.push("right");
             else if (myHead.x > closestFood.x) preferredMoves.push("left");
             if (myHead.y < closestFood.y) preferredMoves.push("up");
             else if (myHead.y > closestFood.y) preferredMoves.push("down");
 
-            const safePreferredMoves = preferredMoves.filter((move) =>
-                safeMoves.includes(move)
-            );
+            const safePreferredMoves = preferredMoves.filter((m) => safeMoves.includes(m));
             if (safePreferredMoves.length > 0) {
-                nextMove =
-                    safePreferredMoves[
-                        Math.floor(Math.random() * safePreferredMoves.length)
-                        ];
+                nextMove = safePreferredMoves[Math.floor(Math.random() * safePreferredMoves.length)];
             }
         }
+    }
+
+    if (mode === Mode.DEFEND && closestEnemy) {
+        // Pick moves that increase distance from enemy head
+        const moveOptions: { [key: string]: Coord } = {
+            up: { x: myHead.x, y: myHead.y + 1 },
+            down: { x: myHead.x, y: myHead.y - 1 },
+            left: { x: myHead.x - 1, y: myHead.y },
+            right: { x: myHead.x + 1, y: myHead.y },
+        };
+
+        let bestMove = nextMove;
+        let maxDist = -1;
+
+        safeMoves.forEach((m) => {
+            const pos = moveOptions[m];
+            const d = distance(pos, closestEnemy!);
+            if (d > maxDist) {
+                maxDist = d;
+                bestMove = m;
+            }
+        });
+
+        nextMove = bestMove;
     }
 
     console.log(`MOVE ${gameState.turn}: ${nextMove} (${mode})`);
